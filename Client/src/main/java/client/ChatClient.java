@@ -3,8 +3,11 @@
  */
 package client;
 
+import java.awt.Color;
+import java.util.ArrayList;
+import java.util.Random;
 import java.util.Scanner;
- 
+
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -16,29 +19,69 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
- 
+import ca.quarkphysics.hsa2.GraphicsConsole;
+
 public class ChatClient {
- 
-	static final String HOST = "127.0.0.1";
-	static final int PORT = 8007;
+
+	static String HOST = "192.168.0.159";
+	static int PORT = 9876; // 9376;
 	static String clientName;
- 
+	static boolean cont;
+	static ChatClientHandler chatClientHandler;
+	static Channel channel;
+	static Boolean sentCode;
+	static Boolean isTurn;
+	static String optionalMessage;
+	static String boxMessage;
+	static int guessCounter;
+	static int rounds;
+	static String chatInput;
+	static int chatTimer;
+
+	private static int[][] board;
+	private static int[][] guess;
+	private static int[] code;
+	
+
+	private static ArrayList<String> messages;
+	private static ArrayList<String> chat;
+
+	private static GraphicsConsole gc;
+
+	public enum clientStates {
+		READY, GAMECODEBREAKER, GAMECODEMAKER, GAMEOVER, OPPONENTTURN
+	}
+
+	private static ChatClient.clientStates state = clientStates.READY;
+
 	public static void main(String[] args) throws Exception {
- 
-		/*
-		 * Get name of the user for this chat session.
-		 */
-		Scanner scanner = new Scanner(System.in);
-		System.out.println("Please enter your name: ");
-		if (scanner.hasNext()) {
-			clientName = scanner.nextLine();
-			System.out.println("Welcome " + clientName);
-		}
- 
+		rounds = 2;
+		cont = true;
+		sentCode = false;
+		optionalMessage = "";
+		boxMessage = "ready";
+		guessCounter = -1;
+		chatInput = "";
+		chatTimer = 0;
+		chat = new ArrayList<String>();
+
+		board = new int[10][4];
+		guess = new int[20][2];
+		code = new int[4];
+
+		gc = new GraphicsConsole(600, 770, 30, "Mastermind");
+		gc.setAntiAlias(true);
+		gc.enableMouseMotion();
+		gc.enableMouse();
+		gc.enableInputMethods(true);
+		HOST = gc.showInputDialog("Give IP", "IP Config");
+		PORT = Integer.parseInt(gc.showInputDialog("Give PORT", "PORT Config"));
+
 		/*
 		 * Configure the client.
 		 */
- 
+		chatClientHandler = new ChatClientHandler();
+
 		// Since this is client, it doesn't need boss group. Create single group.
 		EventLoopGroup group = new NioEventLoopGroup();
 		try {
@@ -55,26 +98,26 @@ public class ChatClient {
 							 */
 							p.addLast(new StringDecoder());
 							p.addLast(new StringEncoder());
- 
+
 							// This is our custom client handler which will have logic for chat.
-							p.addLast(new ChatClientHandler());
- 
+							p.addLast(chatClientHandler);
+
 						}
 					});
- 
+
 			// Start the client.
 			ChannelFuture f = b.connect(HOST, PORT).sync();
- 
+
 			/*
 			 * Iterate & take chat message inputs from user & then send to server.
 			 */
-			while (scanner.hasNext()) {
-				String input = scanner.nextLine();
-				Channel channel = f.sync().channel();
-				channel.writeAndFlush("[" + clientName + "]: " + input);
-				channel.flush();
+			while (cont) {
+				channel = f.sync().channel();
+				// channel.writeAndFlush("[" + clientName + "]: " + input);
+				// channel.flush();
+				handleGame();
 			}
- 
+
 			// Wait until the connection is closed.
 			f.channel().closeFuture().sync();
 		} finally {
@@ -82,4 +125,453 @@ public class ChatClient {
 			group.shutdownGracefully();
 		}
 	}
+
+	public static void handleGame() {
+		handleNetworking();
+		handleChat();
+
+		switch (state) {
+			case GAMECODEBREAKER:
+				handleCodeBreakerGraphics();
+				handleCodeBreakerInput();
+				break;
+			case GAMECODEMAKER:
+				handleCodeMakerInput();
+				handleCodeMakerGraphics();
+				break;
+			case GAMEOVER:
+				handleCodeMakerGraphics();
+				handleGameOverInput();
+				break;
+			case READY:
+				handleReadyGraphics();
+				handleReadyInput();
+				break;
+			default:
+				break;
+
+		}
+		// drawCodeMakerGraphics();
+
+	}
+
+	public static void messageServer(String msg) {
+		channel.writeAndFlush(msg);
+	}
+
+	public static void drawDefaultGraphic() {
+		int height = gc.getHeight() / 11;
+		int width = 280 / 4;
+
+		gc.clear();
+
+		// better colors use look up?
+		for (int i = 0; i < 10; i++) {
+			for (int j = 0; j < 4; j++) {
+
+				gc.drawRect(width * j, height * i, width, height);
+
+				if (board[i][j] == 1) {
+					gc.setColor(new Color(235, 225, 35));
+					gc.fillRect(width * j, height * i, width, height);
+				}
+				if (board[i][j] == 2) {
+					gc.setColor(new Color(17, 97, 24));
+					gc.fillRect(width * j, height * i, width, height);
+				}
+				if (board[i][j] == 3) {
+					gc.setColor(new Color(199, 39, 18));
+					gc.fillRect(width * j, height * i, width, height);
+				}
+				if (board[i][j] == 4) {
+					gc.setColor(new Color(31, 191, 209));
+					gc.fillRect(width * j, height * i, width, height);
+				}
+				if (board[i][j] == 5) {
+					gc.setColor(new Color(17, 18, 18));
+					gc.fillRect(width * j, height * i, width, height);
+				}
+				if (board[i][j] == 6) {
+					gc.setColor(new Color(227, 230, 230));
+					gc.fillRect(width * j, height * i, width, height);
+				}
+				gc.setColor(new Color(0, 0, 0));
+			}
+
+		}
+
+		for (int i = 0; i < 20; i++) {
+			for (int j = 0; j < 2; j++) {
+				gc.drawRect(280 + (width / 2) * j, (height / 2) * i, width / 2, height / 2);
+				if (guess[i][j] == 1) {
+					gc.setColor(new Color(125, 125, 125));
+					gc.fillRect(280 + (width / 2) * j, (height / 2) * i, width / 2, height / 2);
+				}
+				if (guess[i][j] == 2) {
+					gc.setColor(new Color(0, 0, 0));
+					gc.fillRect(280 + (width / 2) * j, (height / 2) * i, width / 2, height / 2);
+				}
+
+				gc.setColor(new Color(0, 0, 0));
+			}
+		}
+
+
+		gc.drawString(chatInput, gc.getWidth() - 250, gc.getHeight() - 170);
+		for(int i = 0; i < chat.size(); i++){
+			
+			gc.drawString(chat.get(i), gc.getWidth() - 250, gc.getHeight() - 200 - 30 * i);
+
+
+		}
+
+
+
+
+		gc.setColor(new Color(0, 0, 0));
+		gc.drawRect(gc.getWidth() - 150, gc.getHeight() - 100, 100, 50);
+		gc.drawString(boxMessage, gc.getWidth() - 130, gc.getHeight() - 70);
+	}
+
+	// READY STUFF
+	public static void handleReadyInput() {
+		synchronized (gc) {
+			int mouseClick = gc.getMouseClick();
+			if (mouseClick > 0 && gc.getMouseX() >= 466 && gc.getMouseY() >= 710) {
+				messageServer("[AP]ready");
+				messageServer("[AP]rounds" + rounds);
+
+			}
+			if (gc.getMouseX() >= 400 && gc.getMouseX() <= 500 && gc.getMouseY() >= 50 && gc.getMouseY() <= 100
+					&& mouseClick > 0 && rounds < 10) {
+				rounds++;
+			}
+			if (gc.getMouseX() >= 400 && gc.getMouseX() <= 500 && gc.getMouseY() >= 200 && gc.getMouseY() <= 2500
+					&& mouseClick > 0 && rounds > 1) {
+				rounds--;
+			}
+
+		}
+
+	}
+
+	public static void handleReadyGraphics() {
+		synchronized (gc) {
+			drawDefaultGraphic();
+			gc.drawRect(400, 50, 100, 50);
+			gc.drawString("Increase", 425, 75);
+			gc.drawString(String.format("%d", rounds), 450, 150);
+			gc.drawRect(400, 200, 100, 50);
+			gc.drawString("Decrease", 425, 225);
+		}
+	}
+
+	// HANDLE CODE MAKER
+	public static void handleCodeMakerInput() {
+		int mouseClick = gc.getMouseClick();
+
+		synchronized (gc) {
+			if (mouseClick == 1 && gc.getMouseX() >= 350 && gc.getMouseY() >= 50 && gc.getMouseY() <= 100
+					&& !sentCode) {
+				code[getMouseInputCode()] = (code[getMouseInputCode()] + 1) % 7 == 0 ? 1
+						: (code[getMouseInputCode()] + 1) % 7;
+			}
+
+			if (mouseClick > 0 && gc.getMouseX() >= 466 && gc.getMouseY() >= 710 && !sentCode) {
+				StringBuilder codeString = new StringBuilder("C");
+				for (int num : code) {
+					codeString.append(num);
+				}
+
+				messageServer(codeString.toString());
+
+			}
+
+			if (mouseClick > 0 && gc.getMouseX() >= 466 && gc.getMouseY() >= 710 && boxMessage.equals("Acknowledge")) {
+
+				messageServer("[WA]acknowledgement");
+
+			}
+
+		}
+
+	}
+
+	public static void handleCodeMakerGraphics() {
+		synchronized (gc) {
+			drawDefaultGraphic();
+			gc.drawString("You Are The Code Maker", 350, 10);
+			gc.drawString(optionalMessage, 350, 20);
+
+			for (int i = 0; i < 4; i++) {
+				gc.setColor(new Color(0, 0, 0));
+				gc.drawRect(350 + 50 * i, 50, 50, 40);
+				if (code[i] == 1) {
+					gc.setColor(new Color(235, 225, 35));
+					gc.fillRect(350 + 50 * i, 50, 50, 40);
+				}
+				if (code[i] == 2) {
+					gc.setColor(new Color(17, 97, 24));
+					gc.fillRect(350 + 50 * i, 50, 50, 40);
+				}
+				if (code[i] == 3) {
+					gc.setColor(new Color(199, 39, 18));
+					gc.fillRect(350 + 50 * i, 50, 50, 40);
+				}
+				if (code[i] == 4) {
+					gc.setColor(new Color(31, 191, 209));
+					gc.fillRect(350 + 50 * i, 50, 50, 40);
+				}
+				if (code[i] == 5) {
+					gc.setColor(new Color(17, 18, 18));
+					gc.fillRect(350 + 50 * i, 50, 50, 40);
+				}
+				if (code[i] == 6) {
+					gc.setColor(new Color(227, 230, 230));
+					gc.fillRect(350 + 50 * i, 50, 50, 40);
+				}
+				gc.setColor(new Color(0, 0, 0));
+			}
+
+		}
+	}
+
+	// TODO Make this not suck
+	// Handle Code Breaker
+	public static void handleCodeBreakerInput() {
+		synchronized (gc) {
+			int mouseClick = gc.getMouseClick();
+			if (mouseClick > 0 && !(gc.getMouseX() > 350) && getMouseInput()[0] == guessCounter) {
+				board[getMouseInput()[0]][getMouseInput()[1]] = (board[getMouseInput()[0]][getMouseInput()[1]] + 1)
+						% 7 == 0 ? 1 : (board[getMouseInput()[0]][getMouseInput()[1]] + 1) % 7;
+			}
+
+			if (mouseClick > 0 && gc.getMouseX() >= 466 && gc.getMouseY() >= 710 && !sentCode) {
+				StringBuilder codeString = new StringBuilder("C");
+				if (guessCounter == -1) {
+					return;
+				}
+				for (int num : board[guessCounter]) {
+					codeString.append(num);
+				}
+
+				messageServer(codeString.toString());
+
+			}
+		}
+
+	}
+
+	public static void handleCodeBreakerGraphics() {
+		synchronized (gc) {
+			drawDefaultGraphic();
+			gc.drawString("You Are The Code Breaker", 350, 10);
+			gc.drawString(optionalMessage, 350, 20);
+		}
+	}
+
+	public static int[] getMouseInput() {
+		int place[] = new int[2];
+		place[1] = clamp(gc.getMouseX() / (280 / 4), 0, 3);
+		place[0] = clamp(gc.getMouseY() / (gc.getHeight() / 11), 0, 9);
+
+		return place;
+	}
+
+	public static int getMouseInputCode() {
+
+		return clamp((gc.getMouseX() - 350) / (220 / 4), 0, 3);
+	}
+
+	public static void handleNetworking() {
+		messages = chatClientHandler.getMessages();
+
+		for (int i = 0; i < messages.size(); i++) {
+			String msg = messages.remove(i);
+			System.out.println(msg);
+			switch (state) {
+				case GAMECODEBREAKER:
+					break;
+				case GAMECODEMAKER:
+					break;
+				case GAMEOVER:
+				case READY:
+					if (msg.equals("[WC]SendCodePlease")) {
+						state = clientStates.GAMECODEMAKER;
+						reset();
+						optionalMessage = "Make A Code";
+						boxMessage = "Submit";
+						sentCode = false;
+
+					} else if (msg.equals("[WC]YouAreCodeBreaker")) {
+						state = clientStates.GAMECODEBREAKER;
+						reset();
+						optionalMessage = "Waiting For Code To Be Made";
+						boxMessage = "Waiting";
+					}
+
+					break;
+				default:
+					break;
+
+			}
+			if (msg.equals("[WC]CodeHasBeenSelected")) {
+				optionalMessage = "Code Sent, Waiting for Guess";
+				boxMessage = "Waiting";
+				sentCode = true;
+			}
+			if (msg.equals("[WA]WaitingForGuess") && state == clientStates.GAMECODEMAKER) {
+				optionalMessage = "Waiting for Guess";
+				boxMessage = "Waiting";
+				sentCode = true;
+			}
+
+			if (msg.equals("[WC]SendGuessPlease") || msg.equals("[WA]SendGuessPlease")) {
+				optionalMessage = "Please Enter your Guess";
+				boxMessage = "Submit";
+				guessCounter++;
+				sentCode = false;
+			}
+			if (msg.equals("[WG]GuessReceived")) {
+				sentCode = true;
+				optionalMessage = "Waiting for Code Maker Acknowledgement";
+				boxMessage = "Waiting";
+			}
+			if (msg.equals("[WG]SendAcknowledgementPlease")) {
+				optionalMessage = "Send Acknowledgement";
+				boxMessage = "Acknowledge";
+			}
+
+			if (msg.substring(0, 1).equals("C")) {
+				if (state == clientStates.GAMECODEMAKER) {
+					guessCounter++;
+				}
+				board[guessCounter][0] = Integer.parseInt(msg.substring(1).charAt(0) + "");
+				board[guessCounter][1] = Integer.parseInt(msg.substring(1).charAt(1) + "");
+				board[guessCounter][2] = Integer.parseInt(msg.substring(1).charAt(2) + "");
+				board[guessCounter][3] = Integer.parseInt(msg.substring(1).charAt(3) + "");
+
+			}
+
+			if (msg.equals("[NR]GameOver")) {
+				optionalMessage = "The Game is over";
+				boxMessage = "Game Over";
+				chatClientHandler.setMessages(null);
+				return;
+			}
+
+			if (msg.equals("[WA]BreakerWins")) {
+				if (state == clientStates.GAMECODEBREAKER) {
+					optionalMessage = "You Win";
+				} else {
+					optionalMessage = "You Lose";
+				}
+				state = clientStates.GAMEOVER;
+				boxMessage = "Ready";
+			}
+
+			if (msg.equals("[WA]MakerWins")) {
+				if (state == clientStates.GAMECODEMAKER) {
+					optionalMessage = "You Win";
+				} else {
+					optionalMessage = "You Lose";
+				}
+				state = clientStates.GAMEOVER;
+				boxMessage = "Ready";
+			}
+
+			if (msg.substring(0, 1).equals("H")) {
+
+				handleHint(msg.substring(1));
+			}
+
+			if(msg.startsWith("[CHAT]")){
+				chat.add(0, msg);
+			}
+
+		}
+		chatClientHandler.setMessages(messages);
+	}
+
+	public static void handleHint(String hint) {
+		int guessSpot = guessCounter * 2;
+
+		guess[guessSpot][0] = Integer.parseInt(hint.charAt(0) + "");
+		guess[guessSpot][1] = Integer.parseInt(hint.charAt(1) + "");
+		guess[guessSpot + 1][0] = Integer.parseInt(hint.charAt(2) + "");
+		guess[guessSpot + 1][1] = Integer.parseInt(hint.charAt(3) + "");
+
+	}
+
+	public static void handleGameOverInput() {
+
+		int mouseClick = gc.getMouseClick();
+		if (mouseClick > 0 && gc.getMouseX() >= 466 && gc.getMouseY() >= 710) {
+
+			messageServer("[NR]ready");
+
+		}
+	}
+
+	public static void reset() {
+		for (int i = 0; i < 10; i++) {
+			for (int j = 0; j < 4; j++) {
+				board[i][j] = 0;
+			}
+		}
+
+		for (int i = 0; i < 20; i++) {
+			for (int j = 0; j < 2; j++) {
+				guess[i][j] = 0;
+			}
+		}
+
+		for (int i = 0; i < 4; i++) {
+			code[i] = 0;
+		}
+
+		sentCode = false;
+		guessCounter = -1;
+		optionalMessage = "";
+		boxMessage = "";
+	}
+
+	private static int clamp(int input, int low, int high) {
+		return Math.min(high, Math.max(input, low));
+	}
+
+	private static void handleChat() {
+		int charInput = 0;
+		synchronized (gc) {
+			charInput = gc.getKeyCode();
+			
+		}
+
+		
+		if (charInput == 10) {
+			if(!chatInput.isEmpty()){
+				messageServer("[CHAT]" + chatInput);
+				chatInput = "";
+			}
+
+			chatTimer = 0;
+			
+			return;
+		}	
+		
+
+
+
+
+		if (charInput == 0 || chatInput.length() > 25 || chatTimer < 30) {
+			chatTimer += chatTimer < 30 ? 1 : 0;
+			return;
+		} else {
+			chatTimer = 0;
+			String input = Character.toString((char) (gc.getKeyCode()));
+			chatInput += input;
+		}
+
+	}
+
 }

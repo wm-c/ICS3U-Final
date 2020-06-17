@@ -15,27 +15,21 @@ import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.codec.string.StringDecoder;
 import io.netty.handler.codec.string.StringEncoder;
 
+public class Server {
+    // Port where chat server will listen for connections.
+	static final int PORT = 9376;
 
-public final class Server {
- 
-	// Port where chat server will listen for connections.
-	static final int PORT = 8007;
- 
 	public static void main(String[] args) throws Exception {
- 
-
-		System.out.println("hello JAR");
-
-
 
 		/*
 		 * Configure the server.
 		 */
- 		// Create boss & worker groups. Boss accepts connections from client. Worker
+
+		// Create boss & worker groups. Boss accepts connections from client. Worker
 		// handles further communication through connections.
 		EventLoopGroup bossGroup = new NioEventLoopGroup(1);
 		EventLoopGroup workerGroup = new NioEventLoopGroup();
- 
+
 		try {
 			ServerBootstrap b = new ServerBootstrap();
 			b.group(bossGroup, workerGroup) // Set boss & worker groups
@@ -50,22 +44,24 @@ public final class Server {
 							 */
 							p.addLast(new StringDecoder());
 							p.addLast(new StringEncoder());
- 
+
 							// This is our custom server handler which will have logic for chat.
 							p.addLast(new ServerHandler());
 						}
 					});
- 
+
 			// Start the server.
 			ChannelFuture f = b.bind(PORT).sync();
-			System.out.println("Chat Server started. Ready to accept chat clients.");
- 
+			System.out.println("Server started. Ready to accept chat clients.");
+
 			// Wait until the server socket is closed.
-			f.channel().closeFuture().sync();
+            f.channel().closeFuture().sync();
 		} finally {
-			// Shut down all event loops to terminate all threads.
+            // Shut down all event loops to terminate all threads.
 			bossGroup.shutdownGracefully();
 			workerGroup.shutdownGracefully();
+            System.out.println("Server closed");
 		}
+		
 	}
 }
